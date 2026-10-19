@@ -6,12 +6,16 @@ color 0A
 :: ===========================================================================
 ::  CHANGE IPv4 ADDRESS
 ::
-::  Removes the IPv4 address currently assigned to a network adapter
-::  (the preferred/primary one) and assigns a new address typed by the user,
-::  together with its subnet mask.
+::  Removes the IPv4 address currently assigned to the active network
+::  interface (the preferred/primary one) and assigns a new address typed
+::  by the user, together with its subnet mask.
+::
+::  The active interface is auto-detected (the one with the default
+::  gateway and the lowest metric). If it cannot be detected, the script
+::  asks for its name.
 ::
 ::  Designed for Windows systems where multiple IPv4 addresses are enabled
-::  on the same adapter and you want to swap the preferred one.
+::  on the same interface and you want to swap the preferred one.
 ::
 ::  The script requests administrator privileges through the UAC prompt.
 :: ===========================================================================
@@ -24,31 +28,47 @@ if %errorLevel% neq 0 (
     exit /b
 )
 
+:: ------------------------ auto-detect active interface ----------------------
+set "IFACE="
+for /f "tokens=*" %%i in ('powershell.exe -NoProfile -Command "(Get-NetIPConfiguration ^| Where-Object { $_.IPv4DefaultGateway } ^| Sort-Object { (Get-NetIPInterface -InterfaceIndex $_.InterfaceIndex -AddressFamily IPv4).InterfaceMetric } ^| Select-Object -First 1).InterfaceAlias"') do set "IFACE=%%i"
+
+if defined IFACE goto SHOW_CURRENT
+
+:: ------------------------------ fallback path -------------------------------
+echo [WARN] Could not auto-detect the active interface.
+echo.
+echo Available interfaces:
+echo.
+netsh interface show interface
+echo.
+
+:ASK_IFACE
+set "IFACE="
+set /p "IFACE=Type the name of the interface (example: Ethernet or Wi-Fi): "
+if not defined IFACE (
+    echo [ERROR] The interface name cannot be empty.
+    echo.
+    goto ASK_IFACE
+)
+netsh interface ipv4 show addresses name="!IFACE!" 2>&1 | findstr /i /c:"Configuration for interface" >nul
+if errorlevel 1 (
+    echo [ERROR] Interface "!IFACE!" was not found. Check the list above and try again.
+    echo.
+    goto ASK_IFACE
+)
+
+:SHOW_CURRENT
 echo.
 echo ===========================================================================
 echo    CHANGE IPv4 ADDRESS
 echo ===========================================================================
 echo.
-echo Current IPv4 configuration of this computer:
+echo Active interface: "!IFACE!"
 echo.
-netsh interface ipv4 show addresses
+echo IPv4 addresses currently assigned to "!IFACE!":
 echo.
-
-:: ------------------------------- pick adapter -------------------------------
-:ASK_ADAPTER
-set "ADAPTER="
-set /p "ADAPTER=Type the name of the network adapter (example: Ethernet or Wi-Fi): "
-if not defined ADAPTER (
-    echo [ERROR] The adapter name cannot be empty.
-    echo.
-    goto ASK_ADAPTER
-)
-netsh interface ipv4 show addresses name="%ADAPTER%" 2>&1 | findstr /i /c:"Configuration for interface" >nul
-if errorlevel 1 (
-    echo [ERROR] Adapter "%ADAPTER%" was not found. Check the list above and try again.
-    echo.
-    goto ASK_ADAPTER
-)
+netsh interface ipv4 show addresses name="!IFACE!"
+echo.
 
 :: --------------------------- address to remove ------------------------------
 :ASK_OLD_IP
@@ -63,12 +83,12 @@ call :ValidateIPv4 "!OLDIP!"
 if errorlevel 1 goto ASK_OLD_IP
 
 echo.
-echo Removing address !OLDIP! from adapter "%ADAPTER%"...
-netsh interface ipv4 delete address name="%ADAPTER%" addr=!OLDIP!
+echo Removing address !OLDIP! from interface "!IFACE!"...
+netsh interface ipv4 delete address name="!IFACE!" addr=!OLDIP!
 if errorlevel 1 (
     echo.
     echo [ERROR] The address !OLDIP! could not be removed.
-    echo         Make sure it is assigned to the adapter "%ADAPTER%".
+    echo         Make sure it is assigned to the interface "!IFACE!".
     echo.
     pause
     exit /b 1
@@ -99,13 +119,13 @@ call :ValidateIPv4 "!MASK!"
 if errorlevel 1 goto ASK_MASK
 
 echo.
-echo Assigning !NEWIP! with mask !MASK! to adapter "%ADAPTER%"...
-netsh interface ipv4 add address name="%ADAPTER%" addr=!NEWIP! mask=!MASK!
+echo Assigning !NEWIP! with mask !MASK! to interface "!IFACE!"...
+netsh interface ipv4 add address name="!IFACE!" addr=!NEWIP! mask=!MASK!
 if errorlevel 1 (
     echo.
     echo [ERROR] The new address could not be assigned.
     echo         Restoring the previous address !OLDIP! as a best effort...
-    netsh interface ipv4 add address name="%ADAPTER%" addr=!OLDIP! >nul 2>&1
+    netsh interface ipv4 add address name="!IFACE!" addr=!OLDIP! >nul 2>&1
     echo.
     pause
     exit /b 1
@@ -114,9 +134,9 @@ if errorlevel 1 (
 echo.
 echo [OK] Address !NEWIP! assigned successfully.
 echo.
-echo Current IPv4 configuration of "%ADAPTER%":
+echo Current IPv4 configuration of "!IFACE!":
 echo.
-netsh interface ipv4 show addresses name="%ADAPTER%"
+netsh interface ipv4 show addresses name="!IFACE!"
 echo.
 echo Done. Press any key to close.
 pause >nul
