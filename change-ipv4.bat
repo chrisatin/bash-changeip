@@ -6,9 +6,13 @@ color 0A
 :: ===========================================================================
 ::  CHANGE IPv4 ADDRESS
 ::
+::  Assigns the new IPv4 address FIRST and then removes the old one.
+::  (Adding first avoids leaving the interface with no IP when the old
+::  address is the only one assigned.)
+::
 ::  Runs exactly:
-::    netsh interface ipv4 delete address "Interface" OldIP
 ::    netsh interface ipv4 add address    "Interface" NewIP SubnetMask
+::    netsh interface ipv4 delete address "Interface" OldIP
 :: ===========================================================================
 
 :: --------------------------------- elevate ----------------------------------
@@ -76,14 +80,14 @@ if errorlevel 1 (
 :: ------------------------------- execute -----------------------------------
 echo.
 echo Executing the following commands:
-echo   netsh interface ipv4 delete address "!IFACE!" !OLDIP!
 echo   netsh interface ipv4 add address    "!IFACE!" !NEWIP! !MASK!
+echo   netsh interface ipv4 delete address "!IFACE!" !OLDIP!
 echo.
 
-netsh interface ipv4 delete address "!IFACE!" !OLDIP!
+netsh interface ipv4 add address "!IFACE!" !NEWIP! !MASK!
 ping -n 1 127.0.0.1 >nul
 
-netsh interface ipv4 add address "!IFACE!" !NEWIP! !MASK!
+netsh interface ipv4 delete address "!IFACE!" !OLDIP!
 ping -n 1 127.0.0.1 >nul
 
 :: ------------------------------- verify -------------------------------------
