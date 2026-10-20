@@ -6,13 +6,13 @@ color 0A
 :: ===========================================================================
 ::  CHANGE IPv4 ADDRESS
 ::
-::  Assigns the new IPv4 address FIRST and then removes the old one.
-::  (Adding first avoids leaving the interface with no IP when the old
-::  address is the only one assigned.)
+::  Uses PowerShell cmdlets (Remove-NetIPAddress / New-NetIPAddress) wrapped
+::  inside this batch file, which are more reliable than netsh for deleting
+::  addresses (netsh can fail on DHCP-assigned or "preferred" addresses).
 ::
-::  Runs exactly:
-::    netsh interface ipv4 add address    "Interface" NewIP SubnetMask
-::    netsh interface ipv4 delete address "Interface" OldIP
+::  Runs:
+::    Remove-NetIPAddress -InterfaceAlias "<iface>" -IPAddress <old-ip>
+::    New-NetIPAddress    -InterfaceAlias "<iface>" -IPAddress <new-ip> -PrefixLength <n>
 :: ===========================================================================
 
 :: --------------------------------- elevate ----------------------------------
@@ -79,22 +79,21 @@ if errorlevel 1 (
 
 :: ------------------------------- execute -----------------------------------
 echo.
-echo Executing the following commands:
-echo   netsh interface ipv4 add address    "!IFACE!" !NEWIP! !MASK!
-echo   netsh interface ipv4 delete address "!IFACE!" !OLDIP!
+echo Running PowerShell commands...
 echo.
 
-netsh interface ipv4 add address "!IFACE!" !NEWIP! !MASK!
-ping -n 1 127.0.0.1 >nul
+powershell.exe -NoProfile -ExecutionPolicy Bypass -Command ^
+  "$iface='!IFACE!'; $oldip='!OLDIP!'; $newip='!NEWIP!'; $mask='!MASK!'; " ^
+  "Write-Host ('Removing ' + $oldip + ' from ' + $iface); " ^
+  "try { Remove-NetIPAddress -InterfaceAlias $iface -IPAddress $oldip -Confirm:$false -ErrorAction Stop; Write-Host '  removed.' } catch { Write-Host ('  FAILED: ' + $_.Exception.Message); if ($_.Exception.Message -match 'DHCP') { Write-Host '  Hint: this address may be DHCP-assigned. Try: ipconfig /release' } }; " ^
+  "Start-Sleep -Seconds 1; " ^
+  "$bytes = ([System.Net.IPAddress]::Parse($mask)).GetAddressBytes(); " ^
+  "$prefix = (($bytes | ForEach-Object { [Convert]::ToString($_,2).PadLeft(8,'0') }) -join '').TrimEnd('0').Length; " ^
+  "Write-Host ('Adding ' + $newip + '/' + $prefix + ' to ' + $iface); " ^
+  "try { New-NetIPAddress -InterfaceAlias $iface -IPAddress $newip -PrefixLength $prefix -ErrorAction Stop | Out-Null; Write-Host '  added.' } catch { Write-Host ('  FAILED: ' + $_.Exception.Message) }; " ^
+  "Write-Host ''; Write-Host ('Current IPv4 on ' + $iface + ':'); " ^
+  "Get-NetIPAddress -InterfaceAlias $iface -AddressFamily IPv4 | Select-Object -ExpandProperty IPAddress"
 
-netsh interface ipv4 delete address "!IFACE!" !OLDIP!
-ping -n 1 127.0.0.1 >nul
-
-:: ------------------------------- verify -------------------------------------
-echo.
-echo Current IPv4 configuration of "!IFACE!":
-echo.
-netsh interface ipv4 show addresses name="!IFACE!"
 echo.
 echo Done. Press any key to close.
 pause >nul

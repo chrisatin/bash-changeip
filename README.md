@@ -46,13 +46,15 @@ Detecting the active interface:
 powershell -NoProfile -Command "(Get-NetIPConfiguration | Where-Object { $_.IPv4DefaultGateway } | Sort-Object { (Get-NetIPInterface -InterfaceIndex $_.InterfaceIndex -AddressFamily IPv4).InterfaceMetric } | Select-Object -First 1).InterfaceAlias"
 ```
 
-Changing the address:
+Changing the address (PowerShell cmdlets wrapped inside the batch file):
 
 ```bat
-netsh interface ipv4 show addresses  name="<interface>"
-netsh interface ipv4 delete address  name="<interface>" addr=<old-ip>
-netsh interface ipv4 add address     name="<interface>" addr=<new-ip> mask=<subnet-mask>
+powershell -NoProfile -ExecutionPolicy Bypass -Command "Remove-NetIPAddress -InterfaceAlias '<iface>' -IPAddress <old-ip> -Confirm:$false"
+powershell -NoProfile -ExecutionPolicy Bypass -Command "New-NetIPAddress    -InterfaceAlias '<iface>' -IPAddress <new-ip> -PrefixLength <n>"
 ```
+
+The subnet mask typed by the user is converted to a prefix length inside PowerShell
+(`255.255.255.0` -> `24`).
 
 Verifying (after each change):
 
